@@ -1,0 +1,53 @@
+services:
+  tailscaled:
+    image: tailscale/tailscale:latest
+    container_name: tailscaled
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - /var/lib:/var/lib
+      - tailscale-run:/var/run/tailscale
+    environment:
+      TS_SOCKET: /var/run/tailscale/tailscaled.sock
+      TS_AUTHKEY: ${TS_AUTHKEY}
+    restart: unless-stopped
+
+  derper:
+    image: fredliang/derper:latest
+    container_name: myderp
+    depends_on:
+      - tailscaled
+      - certbot
+    ports:
+      - "443:443/tcp"
+      - "9443:443/tcp"
+      - "3478:3478/udp"
+    environment:
+      DERP_DOMAIN: ${DOMAIN}
+      DERP_CERT_MODE: manual
+      DERP_VERIFY_CLIENTS: "true"
+      DERP_CERT_DIR: /certs/live/mycert
+    volumes:
+      - certs:/certs:ro
+      - tailscale-run:/var/run/tailscale
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/dns-cloudflare:latest
+    container_name: certbot
+    environment:
+      DOMAIN: ${DOMAIN}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+    volumes:
+      - ./certbot/entrypoint.sh:/entrypoint.sh:ro
+      - certs:/etc/letsencrypt
+    restart: unless-stopped
+    entrypoint: ["/entrypoint.sh"]
+
+volumes:
+  tailscale-run:
+  certs:
