@@ -51,3 +51,10 @@ services:
 volumes:
   tailscale-run:
   certs:
+
+networks:
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: "fd8a:7c2b:9e10:1::/64"
