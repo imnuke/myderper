@@ -1,27 +1,53 @@
 services:
+  caddy:
+    image: ghcr.io/caddybuilds/caddy-cloudflare:${CADDY_VERSION:-2.11.2}
+    container_name: derp-caddy
+    restart: unless-stopped
+    environment:
+      CF_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test:
+        - CMD
+        - test
+        - -f
+        - /data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}/${DOMAIN}.crt
+      interval: 10s
+      timeout: 3s
+      retries: 60
+      start_period: 15s
+
   tailscaled:
     image: tailscale/tailscale:latest
     container_name: tailscaled
-    network_mode: host
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    volumes:
-      - /var/lib:/var/lib
-      - tailscale-run:/var/run/tailscale
     environment:
-      TS_SOCKET: /var/run/tailscale/tailscaled.sock
       TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_USERSPACE: "true"
+      TS_SOCKET: /var/run/tailscale/tailscaled.sock
+      TS_STATE_DIR: /var/lib/tailscale
+    volumes:
+      - ts_state:/var/lib/tailscale
+      - tailscale-run:/var/run/tailscale
+    healthcheck:
+      test: ["CMD", "test", "-S", "/var/run/tailscale/tailscaled.sock"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
     restart: unless-stopped
 
   derper:
     image: fredliang/derper:latest
     container_name: myderp
     depends_on:
-      - tailscaled
-      - certbot
+      caddy:
+        condition: service_healthy
+      tailscaled:
+        condition: service_healthy
     ports:
       - "443:443/tcp"
       - "9443:443/tcp"
@@ -30,27 +56,17 @@ services:
       DERP_DOMAIN: ${DOMAIN}
       DERP_CERT_MODE: manual
       DERP_VERIFY_CLIENTS: "true"
-      DERP_CERT_DIR: /certs/live/mycert
+      DERP_CERT_DIR: /caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}
     volumes:
-      - certs:/certs:ro
-      - tailscale-run:/var/run/tailscale
+      - caddy_data:/caddy-data:ro
+      - tailscale-run:/var/run/tailscale:ro
     restart: unless-stopped
-
-  certbot:
-    image: certbot/dns-cloudflare:latest
-    container_name: certbot
-    environment:
-      DOMAIN: ${DOMAIN}
-      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
-    volumes:
-      - ./certbot/entrypoint.sh:/entrypoint.sh:ro
-      - certs:/etc/letsencrypt
-    restart: unless-stopped
-    entrypoint: ["/entrypoint.sh"]
 
 volumes:
+  caddy_data:
+  caddy_config:
+  ts_state:
   tailscale-run:
-  certs:
 
 networks:
   default:
