@@ -1,31 +1,10 @@
 services:
-  caddy:
-    image: ghcr.io/caddybuilds/caddy-cloudflare:${CADDY_VERSION:-2.11.2}
-    container_name: derp-caddy
-    restart: unless-stopped
-    environment:
-      CF_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
-      DOMAIN: ${DOMAIN}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    healthcheck:
-      test:
-        - CMD
-        - test
-        - -f
-        - /data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}/${DOMAIN}.crt
-      interval: 10s
-      timeout: 3s
-      retries: 60
-      start_period: 15s
-
   tailscaled:
-    image: tailscale/tailscale:latest
+    image: tailscale/tailscale:${TAILSCALE_VERSION:-v1.96.5}
     container_name: tailscaled
     environment:
       TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_HOSTNAME: derper-verifier
       TS_USERSPACE: "true"
       TS_SOCKET: /var/run/tailscale/tailscaled.sock
       TS_STATE_DIR: /var/lib/tailscale
@@ -41,30 +20,38 @@ services:
     restart: unless-stopped
 
   derper:
-    image: fredliang/derper:latest
+    build:
+      context: ./derper
+      args:
+        DERPER_REF: ${DERPER_VERSION:-v1.96.5}
+    image: myderper/derper:${DERPER_VERSION:-v1.96.5}
     container_name: myderp
     depends_on:
-      caddy:
-        condition: service_healthy
       tailscaled:
         condition: service_healthy
     ports:
       - "443:443/tcp"
       - "9443:443/tcp"
       - "3478:3478/udp"
-    environment:
-      DERP_DOMAIN: ${DOMAIN}
-      DERP_CERT_MODE: manual
-      DERP_VERIFY_CLIENTS: "true"
-      DERP_CERT_DIR: /caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${DOMAIN}
+    command:
+      # --hostname must be an IP literal to trigger noHostname mode in
+      # cmd/derper/cert.go, which is required so derper accepts the
+      # sha256-raw:... SNI that cert-pinning tailscale clients send.
+      # The client-facing address is set by HostName in the tailnet derpMap,
+      # not here. 127.0.0.1 is just a placeholder that parses as an IP.
+      - -a=:443
+      - -hostname=127.0.0.1
+      - -certmode=manual
+      - -certdir=/certs
+      - -stun=true
+      - -verify-clients=true
+      - -http-port=-1
     volumes:
-      - caddy_data:/caddy-data:ro
+      - ./certs:/certs:ro
       - tailscale-run:/var/run/tailscale:ro
     restart: unless-stopped
 
 volumes:
-  caddy_data:
-  caddy_config:
   ts_state:
   tailscale-run:
 
