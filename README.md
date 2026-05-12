@@ -18,6 +18,8 @@ For servers that can't expose 80/443 (ISP blocks, China hosts without ICP filing
 
 ## Setup
 
+Before first start, configure the tailnet policy and create the auth key — both required by `--advertise-tags=tag:relay` in `docker-compose.yml`. See [Peer relay](#peer-relay) below for the ACL snippet and key creation steps. Then:
+
 ```bash
 cp example.env .env
 $EDITOR .env                       # set DOMAIN and TS_AUTHKEY
@@ -26,6 +28,7 @@ $EDITOR .env                       # set DOMAIN and TS_AUTHKEY
 # → paste the snippet into the tailnet policy at /admin/acls, merging with any existing derpMap
 
 docker compose up -d --build
+docker exec tailscaled tailscale set --relay-server-port=40000   # one-time, persists in ts_state
 ```
 
 Verify on any tailnet client (≥ v1.78):
@@ -67,6 +70,40 @@ Cert is good for 10 years; rotation is only needed if the key is compromised or 
 
 - `443/tcp` and `9443/tcp` — both mapped to derper's internal 443; pick whichever your network allows and set it as `DERPPort` in the derpMap.
 - `3478/udp` — STUN.
+- `40000/udp` (`$PEER_RELAY_PORT`) — peer relay listener (see below).
+
+## Peer relay
+
+This sidecar `tailscaled` doubles as a [peer relay](https://tailscale.com/docs/features/peer-relay) (UDP-based relay tried before DERP, when tailscale clients can't directly reach each other). DERP traffic itself is unaffected — peer relay only handles regular WireGuard peer-to-peer fallback. Requires tailscale ≥ 1.86 on the relay and on clients that want to use it.
+
+**Setup**:
+
+1. In https://login.tailscale.com/admin/acls add:
+   ```json
+   {
+     "tagOwners": {
+       "tag:relay": ["autogroup:admin"]
+     },
+     "grants": [
+       {
+         "src": ["*"],
+         "dst": ["tag:relay"],
+         "app": {"tailscale.com/cap/relay": [{}]}
+       }
+     ]
+   }
+   ```
+2. Create the auth key at https://login.tailscale.com/admin/settings/keys with `tag:relay` pre-authorized. Use it as `TS_AUTHKEY`.
+3. Make sure `$PEER_RELAY_PORT` (default 40000/udp) is open in your host firewall and reachable from the public internet for best results.
+4. After the first `docker compose up`, apply the relay port (already in the Setup steps above). The pref persists in the `ts_state` volume — only re-run if you wipe the volume.
+
+**Verify** with `tailscale ping <peer>` from a client (≥ v1.86). When peer relay is in use you'll see lines like:
+
+```
+pong from peer (100.x.y.z) via peer-relay(<server-ip>:40000:vni:1) in 23ms
+```
+
+If you see `via DERP(...)` instead, either direct P2P succeeded (good — no relay needed) or both peer-relay attempts failed (check the host firewall on `$PEER_RELAY_PORT`).
 
 ## Design notes
 

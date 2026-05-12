@@ -8,6 +8,11 @@ services:
       TS_USERSPACE: "true"
       TS_SOCKET: /var/run/tailscale/tailscaled.sock
       TS_STATE_DIR: /var/lib/tailscale
+      # --relay-server-port is set once via `tailscale set` after first boot
+      # (it's a pref, not an `up` flag) — see README "Peer relay" section.
+      TS_EXTRA_ARGS: "--advertise-tags=tag:relay"
+    ports:
+      - "${PEER_RELAY_PORT:-40000}:${PEER_RELAY_PORT:-40000}/udp"
     volumes:
       - ts_state:/var/lib/tailscale
       - tailscale-run:/var/run/tailscale
