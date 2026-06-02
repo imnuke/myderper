@@ -26,6 +26,11 @@ fi
 
 DERP_PORT="${DERP_PORT:-9443}"
 
+# When IP is set, use it as the derpMap HostName so the TLS ClientHello
+# carries no SNI (Go skips SNI for IP literals per RFC 6066). This bypasses
+# SNI-based firewalls while sha256-raw cert pinning still provides security.
+DERP_HOST="${IP:-$DOMAIN}"
+
 # derper's manualCertManager loads files named after its --hostname flag.
 # We use 127.0.0.1 as a placeholder so derper triggers noHostname mode
 # (which is what cert-pinning clients need). The cert's CN/SAN below is
@@ -61,7 +66,8 @@ Paste into https://login.tailscale.com/admin/acls under "derpMap":
         "Nodes": [{
           "Name":     "myderp-1",
           "RegionID": 900,
-          "HostName": "$DOMAIN",
+          "HostName": "$DERP_HOST",
+          "IPv6":     "none",
           "DERPPort": $DERP_PORT,
           "CertName": "sha256-raw:$hash"
         }]
